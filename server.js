@@ -2,18 +2,21 @@
 const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
+const path = require("path");
 
 const app = express();
-app.use(express.json());
-
 const server = http.createServer(app);
+
 const wss = new WebSocket.Server({
   server,
-  maxPayload: 16 * 1024
+  maxPayload: 16384
 });
 
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "client")));
+app.use("/assets", express.static(path.join(__dirname, "assets")));
+
 const players = new Map();
-const rooms = new Map();
 
 function send(ws, data) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -22,144 +25,104 @@ function send(ws, data) {
 }
 
 function broadcast(data, except = null) {
-  const message = JSON.stringify(data);
-
-  wss.clients.forEach(client => {
-    if (
-      client !== except &&
-      client.readyState === WebSocket.OPEN
-    ) {
-      client.send(message);
+  for (const client of wss.clients) {
+    if (client !== except && client.readyState === WebSocket.OPEN) {
+      send(client, data);
     }
-  });
+  }
 }
 
-// Ana sayfa
 app.get("/", (req, res) => {
-  res.json({
-    game: "EXLAND",
-    status: "ONLINE",
-    players: players.size,
-    rooms: rooms.size,
-    websocket: "READY"
-  });
+  res.sendFile(path.join(__dirname, "client", "index.html"));
 });
 
-// Sunucu durumu
 app.get("/status", (req, res) => {
   res.json({
-    online: true,
     game: "EXLAND",
-    playerCount: players.size,
-    roomCount: rooms.size
+    online: true,
+    players: players.size
   });
 });
 
-// Oyuncu listesi
 app.get("/players", (req, res) => {
-  res.json({
-    players: [...players.values()]
-  });
+  res.json([...players.values()]);
 });
 
-// WebSocket bağlantısı
 wss.on("connection", ws => {
   let playerName = null;
-
-  console.log("Yeni bağlantı.");
 
   ws.on("message", raw => {
     try {
       const data = JSON.parse(raw.toString());
 
-      if (!data || typeof data.type !== "string") {
-        return send(ws, {
-          type: "error",
-          message: "Geçersiz mesaj."
-        });
-      }
-
-      // Oyuncu girişi
       if (data.type === "join") {
-        if (playerName) {
-          return send(ws, {
-            type: "error",
-            message: "Zaten sunucuya bağlısın."
-          });
-        }
+        if (playerName) return;
 
         const name = String(data.name || "").trim();
 
         if (!/^[a-zA-Z0-9_]{3,16}$/.test(name)) {
-          return send(ws, {
+          send(ws, {
             type: "error",
             message: "İsim 3-16 karakter olmalı."
           });
+          return;
         }
 
         const taken = [...players.values()].some(
-          p => p.name.toLowerCase() === name.toLowerCase()
+          player => player.name.toLowerCase() === name.toLowerCase()
         );
 
         if (taken) {
-          return send(ws, {
+          send(ws, {
             type: "error",
-            message: "Bu isim zaten kullanılıyor!"
+            message: "Bu isim zaten kullanılıyor."
           });
+          return;
         }
 
         playerName = name;
 
-        const player = {
+        players.set(ws, {
           name,
           x: 0,
           y: 0,
           z: 0,
           health: 100,
           score: 0
-        };
+        });
 
-        players.set(ws, player);
-
-        // app.js ile uyumlu karşılama mesajı
         send(ws, {
           type: "welcome",
           you: {
-            name: player.name,
-            health: player.health
+            name,
+            health: 100
           }
         });
 
-        broadcast({
+        send(ws, {
           type: "playerList",
           players: [...players.values()]
         });
 
-        console.log(`${name} EXLAND sunucusuna katıldı.`);
+        broadcast({
+          type: "playerJoined",
+          name
+        }, ws);
+
         return;
       }
 
-      // Giriş yapmadan oyun mesajı gönderilemez
-      if (!playerName) {
-        return send(ws, {
-          type: "error",
-          message: "Önce sunucuya giriş yap."
-        });
-      }
+      if (!playerName) return;
 
       const player = players.get(ws);
-
       if (!player) return;
 
-      // Oyuncu hareketi
       if (data.type === "move") {
         const x = Number(data.x);
         const y = Number(data.y);
         const z = Number(data.z);
 
-        if (![x, y, z].every(Number.isFinite)) {
-          return;
-        }
+        if (![x, y, z].every(Number.isFinite)) return;
 
         player.x = Math.max(-10000, Math.min(10000, x));
         player.y = Math.max(-10000, Math.min(10000, y));
@@ -172,11 +135,8 @@ wss.on("connection", ws => {
           y: player.y,
           z: player.z
         }, ws);
-
-        return;
       }
 
-      // Ateş etme
       if (data.type === "shoot") {
         broadcast({
           type: "shot",
@@ -184,8 +144,33 @@ wss.on("connection", ws => {
           target: data.target || null,
           weapon: data.weapon || "Classic"
         }, ws);
+      }
 
-        return;
+      // WebRTC signaling: teklif, cevap ve ICE adayları
+      if (data.type === "webrtc-signal") {
+        const target = String(data.target || "");
+
+        if (!target || !data.signal || typeof data.signal !== "object") {
+          return;
+        }
+
+        const targetSocket = [...players.keys()].find(
+          client => players.get(client)?.name === target
+        );
+
+        if (!targetSocket) {
+          send(ws, {
+            type: "voice-error",
+            message: "Ses bağlantısı kurulacak oyuncu bulunamadı: " + target
+          });
+          return;
+        }
+
+        send(targetSocket, {
+          type: "webrtc-signal",
+          from: playerName,
+          signal: data.signal
+        });
       }
 
     } catch (error) {
@@ -196,33 +181,25 @@ wss.on("connection", ws => {
     }
   });
 
-  // Bağlantı kapandığında
   ws.on("close", () => {
-    if (playerName) {
-      players.delete(ws);
+    if (!playerName) return;
 
-      console.log(`${playerName} sunucudan ayrıldı.`);
+    players.delete(ws);
 
-      broadcast({
-        type: "playerLeft",
-        name: playerName
-      });
+    broadcast({
+      type: "playerLeft",
+      name: playerName
+    });
 
-      broadcast({
-        type: "playerList",
-        players: [...players.values()]
-      });
-    }
-  });
-
-  ws.on("error", error => {
-    console.error("WebSocket hatası:", error.message);
+    broadcast({
+      type: "playerList",
+      players: [...players.values()]
+    });
   });
 });
 
-// Sunucuyu başlat
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`EXLAND SERVER ONLINE: ${PORT}`);
+  console.log("EXLAND SERVER ONLINE: " + PORT);
 });
