@@ -1,7 +1,11 @@
 
-const catalogUrl = "assets/catalog/cosmetics.json";
+const SERVER_URL = "wss://exland-server-production.up.railway.app";
 
 let catalog;
+let socket = null;
+let localStream = null;
+let muted = false;
+
 let choice = {
   outfit: 0,
   pants: 0,
@@ -9,267 +13,305 @@ let choice = {
   accessory: 0
 };
 
-let socket = null;
-let localStream = null;
-let muted = false;
-
-const $ = s => document.querySelector(s);
-
-const SERVER_URL = "wss://exland-server-production.up.railway.app";
+const $ = selector => document.querySelector(selector);
 
 async function init() {
-  catalog = await fetch(catalogUrl).then(r => r.json());
+  try {
+    catalog = await fetch("../assets/catalog/cosmetics.json")
+      .then(response => {
+        if (!response.ok) throw new Error("Katalog yüklenemedi");
+        return response.json();
+      });
 
-  fill("outfits", catalog.outfits, "outfit");
-  fill("pants", catalog.pants, "pants");
-  fill("headwear", catalog.headwear, "headwear");
-  fill("accessories", catalog.accessories, "accessory");
+    fill("outfits", catalog.outfits, "outfit");
+    fill("pants", catalog.pants, "pants");
+    fill("headwear", catalog.headwear, "headwear");
+    fill("accessories", catalog.accessories, "accessory");
 
-  fillSelect("hair", catalog.hair);
-  fillSelect("beard", catalog.beards);
+    fillSelect("hair", catalog.hair);
+    fillSelect("beard", catalog.beards);
 
-  document.querySelectorAll(".tab").forEach(b => {
-    b.onclick = () => {
-      document.querySelectorAll(".tab, .pane")
-        .forEach(x => x.classList.remove("active"));
+    document.querySelectorAll(".tab").forEach(button => {
+      button.onclick = () => {
+        document.querySelectorAll(".tab, .pane")
+          .forEach(element => element.classList.remove("active"));
 
-      b.classList.add("active");
-      $("#" + b.dataset.tab).classList.add("active");
-    };
-  });
+        button.classList.add("active");
 
-  loadSaved();
+        const pane = $("#" + button.dataset.tab);
+        if (pane) pane.classList.add("active");
+      };
+    });
+
+    loadSaved();
+  } catch (error) {
+    console.error(error);
+    if ($("#connection")) {
+      $("#connection").textContent = "Karakter kataloğu yüklenemedi.";
+    }
+  }
 }
 
-function fill(id, arr, key) {
+function fill(id, items, key) {
   const root = $("#" + id);
+  if (!root || !Array.isArray(items)) return;
 
-  arr.forEach((name, i) => {
-    const d = document.createElement("button");
+  root.innerHTML = "";
 
-    d.className = "item" + (i === 0 ? " selected" : "");
-    d.innerHTML = name + "<small>ÜCRETSİZ</small>";
+  items.forEach((name, index) => {
+    const button = document.createElement("button");
 
-    d.onclick = () => {
-      choice[key] = i;
+    button.className = "item" + (index === 0 ? " selected" : "");
+    button.textContent = name;
 
-      root.querySelectorAll(".item")
-        .forEach(x => x.classList.remove("selected"));
+    const small = document.createElement("small");
+    small.textContent = "ÜCRETSİZ";
+    button.appendChild(small);
 
-      d.classList.add("selected");
+    button.onclick = () => {
+      choice[key] = index;
+
+      root.querySelectorAll(".item").forEach(item => {
+        item.classList.remove("selected");
+      });
+
+      button.classList.add("selected");
       save();
     };
 
-    root.append(d);
+    root.appendChild(button);
   });
 }
 
-function fillSelect(id, arr) {
-  const s = $("#" + id);
+function fillSelect(id, items) {
+  const select = $("#" + id);
+  if (!select || !Array.isArray(items)) return;
 
-  arr.forEach(v => {
-    let o = document.createElement("option");
-    o.textContent = v;
-    s.append(o);
+  select.innerHTML = "";
+
+  items.forEach(value => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
   });
 
-  s.onchange = save;
+  select.onchange = save;
 }
 
 function save() {
-  let data = {
-    gender: $("#gender").value,
-    hair: $("#hair").value,
-    beard: $("#beard").value,
+  if (!catalog) return;
+
+  const data = {
+    gender: $("#gender")?.value || "",
+    hair: $("#hair")?.value || "",
+    beard: $("#beard")?.value || "",
     outfit: catalog.outfits[choice.outfit],
     pants: catalog.pants[choice.pants],
     headwear: catalog.headwear[choice.headwear],
     accessory: catalog.accessories[choice.accessory]
   };
 
-  localStorage.setItem(
-    "exland_character",
-    JSON.stringify(data)
-  );
+  localStorage.setItem("exland_character", JSON.stringify(data));
 }
 
 function loadSaved() {
   try {
-    let d = JSON.parse(
+    const data = JSON.parse(
       localStorage.getItem("exland_character")
     );
 
-    if (!d) return;
+    if (!data || !catalog) return;
 
-    ["gender", "hair", "beard"].forEach(k => {
-      if (d[k]) $("#" + k).value = d[k];
+    ["gender", "hair", "beard"].forEach(key => {
+      const element = $("#" + key);
+      if (element && data[key]) element.value = data[key];
     });
 
-    [
-      ["outfit", "outfits"],
-      ["pants", "pants"],
-      ["headwear", "headwear"],
-      ["accessory", "accessories"]
-    ].forEach(([k, id]) => {
-      let arr = catalog[
-        k === "headwear" ? "headwear" :
-        k === "accessory" ? "accessories" : k
-      ];
+    const groups = [
+      ["outfit", "outfits", catalog.outfits],
+      ["pants", "pants", catalog.pants],
+      ["headwear", "headwear", catalog.headwear],
+      ["accessory", "accessories", catalog.accessories]
+    ];
 
-      let i = arr.indexOf(d[k]);
+    groups.forEach(([key, id, items]) => {
+      const index = items.indexOf(data[key]);
+      if (index < 0) return;
 
-      if (i >= 0) {
-        choice[k] = i;
+      choice[key] = index;
 
-        $("#"+id).children[i].classList.add("selected");
-        $("#"+id).children[0].classList.remove("selected");
-      }
+      const buttons = $("#" + id)?.querySelectorAll(".item");
+      if (!buttons) return;
+
+      buttons.forEach((button, i) => {
+        button.classList.toggle("selected", i === index);
+      });
     });
-  } catch (e) {
-    console.error("Karakter yüklenemedi:", e);
+  } catch (error) {
+    console.warn("Karakter kaydı okunamadı:", error);
   }
 }
 
-// Rastgele karakter
-$("#random").onclick = () => {
-  Object.keys(choice).forEach(k => {
-    let arr = catalog[
-      k === "accessory" ? "accessories" : k
-    ];
+if ($("#random")) {
+  $("#random").onclick = () => {
+    if (!catalog) return;
 
-    choice[k] = Math.floor(Math.random() * arr.length);
+    Object.keys(choice).forEach(key => {
+      const items = catalog[
+        key === "accessory" ? "accessories" : key
+      ];
 
-    let id = k === "accessory" ? "accessories" : k;
+      choice[key] = Math.floor(Math.random() * items.length);
 
-    $("#" + id).querySelectorAll(".item")
-      .forEach((x, i) => {
-        x.classList.toggle("selected", i === choice[k]);
+      const id = key === "accessory" ? "accessories" : key;
+
+      $("#" + id)?.querySelectorAll(".item").forEach((button, i) => {
+        button.classList.toggle("selected", i === choice[key]);
       });
-  });
-
-  save();
-};
-
-// Karakteri kaydet
-$("#save").onclick = () => {
-  save();
-
-  $("#creator").hidden = true;
-  $("#lobby").hidden = false;
-};
-
-// Railway sunucusuna bağlan
-$("#connect").onclick = () => {
-  let name = $("#playerName").value.trim();
-
-  if (!name) {
-    $("#connection").textContent = "Önce oyuncu adı gir.";
-    return;
-  }
-
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    $("#connection").textContent = "Zaten bağlısın.";
-    return;
-  }
-
-  $("#connection").textContent = "EXLAND sunucusuna bağlanılıyor...";
-
-  socket = new WebSocket(SERVER_URL);
-
-  socket.onopen = () => {
-    socket.send(JSON.stringify({
-      type: "join",
-      name
-    }));
-  };
-
-  socket.onmessage = e => {
-    let m = JSON.parse(e.data);
-
-    $("#connection").textContent =
-      m.type === "welcome"
-        ? "Bağlandı: " + m.you.name
-        : m.message || m.type;
-  };
-
-  socket.onerror = () => {
-    $("#connection").textContent = "Sunucu bağlantı hatası.";
-  };
-
-  socket.onclose = () => {
-    $("#connection").textContent = "Sunucu bağlantısı kapandı.";
-  };
-};
-
-// Ateş et
-$("#fire").onclick = () => {
-  $("#gameScene").textContent = "ATEŞ!";
-
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({
-      type: "shoot"
-    }));
-  }
-};
-
-// Şarjör doldur
-$("#reload").onclick = () => {
-  $("#reload").textContent = "ŞARJÖR DOLDURULUYOR…";
-
-  setTimeout(() => {
-    $("#reload").textContent = "ŞARJÖR ↻";
-  }, 1000);
-};
-
-// Eğil
-$("#crouch").onclick = () => {
-  $("#gameScene").classList.toggle("muted");
-  $("#crouch").classList.toggle("muted");
-};
-
-// Kapı
-$("#door").onclick = () => {
-  $("#gameScene").textContent = "KAPI AÇILDI";
-
-  setTimeout(() => {
-    $("#gameScene").textContent = "OYUN ALANI";
-  }, 900);
-};
-
-// Mikrofon
-$("#mic").onclick = async () => {
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-
-    $("#mic").textContent = "🎙 MİKROFON KAPALI";
-    return;
-  }
-
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: true
     });
 
-    $("#mic").textContent = "🎙 MİKROFON AÇIK";
-  } catch (e) {
-    $("#connection").textContent =
-      "Mikrofon izni verilmedi veya HTTPS gerekli.";
-  }
-};
+    save();
+  };
+}
 
-// Hoparlör
-$("#speaker").onclick = () => {
-  muted = !muted;
+if ($("#save")) {
+  $("#save").onclick = () => {
+    save();
 
-  document.querySelectorAll("audio.remote-voice")
-    .forEach(a => a.muted = muted);
+    if ($("#creator")) $("#creator").hidden = true;
+    if ($("#lobby")) $("#lobby").hidden = false;
+  };
+}
 
-  $("#speaker").textContent = muted
-    ? "🔇 SES KAPALI"
-    : "🔊 SES AÇIK";
+if ($("#connect")) {
+  $("#connect").onclick = () => {
+    const name = $("#playerName")?.value.trim();
 
-  $("#speaker").classList.toggle("muted", muted);
-};
+    if (!name) {
+      $("#connection").textContent = "Önce oyuncu adı gir.";
+      return;
+    }
+
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+      $("#connection").textContent = "Zaten bağlantı kuruluyor veya açık.";
+      return;
+    }
+
+    $("#connection").textContent = "Sunucuya bağlanılıyor...";
+
+    socket = new WebSocket(SERVER_URL);
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        type: "join",
+        name
+      }));
+
+      window.ExlandGame?.start(socket);
+    };
+
+    socket.onmessage = event => {
+      let message;
+
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      if (message.type === "welcome") {
+        $("#connection").textContent =
+          "Bağlandı: " + message.you.name;
+      } else if (message.type === "error") {
+        $("#connection").textContent = message.message;
+      }
+    };
+
+    socket.onerror = () => {
+      $("#connection").textContent = "Bağlantı hatası.";
+    };
+
+    socket.onclose = () => {
+      $("#connection").textContent = "Bağlantı kapandı.";
+    };
+  };
+}
+
+if ($("#fire")) {
+  $("#fire").onclick = () => {
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "shoot" }));
+    }
+
+    if ($("#gameScene")) $("#gameScene").textContent = "ATEŞ!";
+  };
+}
+
+if ($("#reload")) {
+  $("#reload").onclick = () => {
+    $("#reload").textContent = "ŞARJÖR DOLDURULUYOR…";
+
+    setTimeout(() => {
+      $("#reload").textContent = "ŞARJÖR ↻";
+    }, 1000);
+  };
+}
+
+if ($("#crouch")) {
+  $("#crouch").onclick = () => {
+    $("#crouch").classList.toggle("muted");
+  };
+}
+
+if ($("#door")) {
+  $("#door").onclick = () => {
+    if ($("#gameScene")) {
+      $("#gameScene").textContent = "KAPI AÇILDI";
+
+      setTimeout(() => {
+        $("#gameScene").textContent = "OYUN ALANI";
+      }, 900);
+    }
+  };
+}
+
+if ($("#mic")) {
+  $("#mic").onclick = async () => {
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+      localStream = null;
+      $("#mic").textContent = "🎙 MİKROFON KAPALI";
+      return;
+    }
+
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        audio: true
+      });
+
+      $("#mic").textContent = "🎙 MİKROFON AÇIK";
+    } catch {
+      $("#connection").textContent =
+        "Mikrofon izni verilmedi veya HTTPS gerekli.";
+    }
+  };
+}
+
+if ($("#speaker")) {
+  $("#speaker").onclick = () => {
+    muted = !muted;
+
+    document.querySelectorAll("audio.remote-voice").forEach(audio => {
+      audio.muted = muted;
+    });
+
+    $("#speaker").textContent = muted
+      ? "🔇 SES KAPALI"
+      : "🔊 SES AÇIK";
+
+    $("#speaker").classList.toggle("muted", muted);
+  };
+}
 
 init();
