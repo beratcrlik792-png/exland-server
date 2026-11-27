@@ -1,5 +1,6 @@
-
 const SERVER_URL = "wss://exland-server-production.up.railway.app";
+
+const ICON_PATH = "/assets/hud/icons/";
 
 let catalog = null;
 let socket = null;
@@ -20,9 +21,85 @@ const ICE_CONFIG = {
 
 const $ = selector => document.querySelector(selector);
 
+// SVG KONTROL İKONLARI
+
+function setControlIcon(button, iconFile, label, alt) {
+  if (!button) return;
+
+  const img = document.createElement("img");
+  img.src = ICON_PATH + iconFile;
+  img.alt = alt;
+  img.width = 24;
+  img.height = 24;
+  img.style.width = "24px";
+  img.style.height = "24px";
+  img.style.objectFit = "contain";
+  img.style.flexShrink = "0";
+
+  img.onerror = () => {
+    console.error("SVG yüklenemedi:", img.src);
+  };
+
+  const text = document.createElement("span");
+  text.textContent = label;
+
+  button.replaceChildren(img, text);
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
+function updateMicButton() {
+  const button = $("#mic");
+  if (!button) return;
+
+  if (!localStream || muted) {
+    setControlIcon(
+      button,
+      "mic-off.svg",
+      "MİKROFON KAPALI",
+      "Mikrofon kapalı"
+    );
+  } else {
+    setControlIcon(
+      button,
+      "mic.svg",
+      "MİKROFON AÇIK",
+      "Mikrofon açık"
+    );
+  }
+
+  button.classList.toggle("muted", !localStream || muted);
+}
+
+function updateSpeakerButton() {
+  const button = $("#speaker");
+  if (!button) return;
+
+  if (speakerMuted) {
+    setControlIcon(
+      button,
+      "volume-x.svg",
+      "SES KAPALI",
+      "Hoparlör kapalı"
+    );
+  } else {
+    setControlIcon(
+      button,
+      "volume-2.svg",
+      "SES AÇIK",
+      "Hoparlör açık"
+    );
+  }
+
+  button.classList.toggle("muted", speakerMuted);
+}
+
 // KARAKTER OLUŞTURUCU
 
 async function init() {
+  updateMicButton();
+  updateSpeakerButton();
+
   try {
     const response = await fetch("/assets/catalog/cosmetics.json");
     if (!response.ok) throw new Error("Katalog yüklenemedi");
@@ -268,7 +345,6 @@ function createPeer(remoteName) {
 async function startPeerConnection(remoteName) {
   if (!myName || !remoteName || remoteName === myName) return;
 
-  // Teklifin yalnızca bir oyuncudan gitmesini sağlar.
   if (myName.localeCompare(remoteName) > 0) return;
 
   const peer = createPeer(remoteName);
@@ -372,12 +448,10 @@ async function enableMicrophone() {
 
     muted = false;
 
-    // Yeni oyuncularla ses bağlantısı kur.
     for (const name of connectedPlayers) {
       await startPeerConnection(name);
     }
 
-    // Mevcut bağlantılara mikrofon parçalarını ekle.
     for (const [name, peer] of peers) {
       const pc = peer.pc;
 
@@ -401,19 +475,6 @@ async function enableMicrophone() {
   } catch (error) {
     console.error(error);
     setStatus("Mikrofon izni alınamadı. HTTPS ve mikrofon iznini kontrol et.");
-  }
-}
-
-function updateMicButton() {
-  const button = $("#mic");
-  if (!button) return;
-
-  if (!localStream) {
-    button.textContent = "🎙 MİKROFON KAPALI";
-  } else if (muted) {
-    button.textContent = "🔇 MİKROFON SESSİZ";
-  } else {
-    button.textContent = "🎙 MİKROFON AÇIK";
   }
 }
 
@@ -550,7 +611,7 @@ $("#door")?.addEventListener("click", () => {
 
 $("#mic")?.addEventListener("click", enableMicrophone);
 
-// SES KONTROLÜ
+// HOPARLÖR
 
 $("#speaker")?.addEventListener("click", () => {
   speakerMuted = !speakerMuted;
@@ -559,11 +620,7 @@ $("#speaker")?.addEventListener("click", () => {
     audio.muted = speakerMuted;
   });
 
-  $("#speaker").textContent = speakerMuted
-    ? "🔇 SES KAPALI"
-    : "🔊 SES AÇIK";
-
-  $("#speaker").classList.toggle("muted", speakerMuted);
+  updateSpeakerButton();
 });
 
 // BAŞLAT
