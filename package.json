@@ -1,8 +1,8 @@
-
 {
   "name": "exland-server",
   "version": "1.0.0",
-  "description": "Exland Multiplayer FPS Game Server",
+  "private": true,
+  "description": "EXLAND multiplayer FPS starter prototype",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
