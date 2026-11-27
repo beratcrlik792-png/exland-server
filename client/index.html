@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>EXLAND</title><link rel="stylesheet" href="style.css"></head>
+<body><header><div class="logo">EX<span>LAND</span></div><div class="tag">ONLINE FPS PROTOTYPE</div></header>
+<main id="creator">
+ <h1>KARAKTERİNİ OLUŞTUR</h1><div class="preview"><div id="avatar"><div class="helmet"></div><div class="head"></div><div class="torso"></div><div class="arm left"></div><div class="arm right"></div><div class="leg left"></div><div class="leg right"></div></div><small>3D KARAKTER ÖNİZLEMESİ • ÖNİZLEME MODELİ</small></div>
+ <nav><button class="tab active" data-tab="looks">Görünüş</button><button class="tab" data-tab="clothes">Kıyafet</button><button class="tab" data-tab="trousers">Pantolon</button><button class="tab" data-tab="headgear">Başlık</button><button class="tab" data-tab="extras">Aksesuar</button></nav>
+ <section class="pane active" id="looks"><label>Cinsiyet<select id="gender"><option>Erkek</option><option>Kadın</option></select></label><label>Saç modeli<select id="hair"></select></label><label>Sakal<select id="beard"></select></label></section>
+ <section class="pane" id="clothes"><h2>50 Ücretsiz Kıyafet</h2><div class="grid" id="outfits"></div></section>
+ <section class="pane" id="trousers"><h2>50 Ücretsiz Pantolon</h2><div class="grid" id="pants"></div></section>
+ <section class="pane" id="headgear"><h2>25 Ücretsiz Kask ve Şapka</h2><div class="grid" id="headwear"></div></section>
+ <section class="pane" id="extras"><h2>Aksesuarlar</h2><div class="grid" id="accessories"></div></section>
+ <div class="buttons"><button id="random">RASTGELE SEÇ</button><button id="save">KAYDET VE DEVAM ET</button></div>
+</main>
+<main id="lobby" hidden><h1>EXLAND LOBİ</h1><div class="card"><label>Oyuncu adın<input id="playerName" maxlength="16" placeholder="Örn: Erdem_01"></label><button id="connect">SUNUCUYA BAĞLAN</button><p id="connection">Bağlantı bekleniyor.</p></div><div class="gamebox"><div id="gameScene">OYUN ALANI<br><small>WASD / dokunmatik kontroller sonraki geliştirme aşamasında</small></div><div class="controls"><button id="fire">ATEŞ</button><button id="reload">ŞARJÖR <span>↻</span></button><button id="crouch">EĞİL</button><button id="door">KAPI</button><button id="mic">🎙 MİKROFON</button><button id="speaker">🔊 SES AÇIK</button></div></div></main>
+<script src="app.js"></script></body></html>
